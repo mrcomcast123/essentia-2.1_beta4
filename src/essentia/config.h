@@ -219,5 +219,8 @@ typedef unsigned int uint;
 
 #endif // DOXYGEN_SHOULD_SKIP_THIS
 
+#ifndef COMCAST_CPU_THROTTLER
+#define COMCAST_CPU_THROTTLER 1
+#endif
 
 #endif // ESSENTIA_CONFIG_H

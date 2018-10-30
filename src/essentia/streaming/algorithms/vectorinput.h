@@ -20,6 +20,7 @@
 #ifndef ESSENTIA_VECTORINPUT_H
 #define ESSENTIA_VECTORINPUT_H
 
+#include <stdio.h>
 #include "../streamingalgorithm.h"
 
 namespace essentia {
@@ -154,6 +155,11 @@ class VectorInput : public Algorithm {
 
   void declareParameters() {}
 
+#if COMCAST_CPU_THROTTLER
+  size_t getSize() {
+    return _inputVector->size();
+  }
+#endif
 };
 
 template <typename T>

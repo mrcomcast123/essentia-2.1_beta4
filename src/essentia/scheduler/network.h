@@ -23,6 +23,7 @@
 #include <vector>
 #include <set>
 #include <stack>
+#include <sys/time.h>
 #include "../streaming/streamingalgorithm.h"
 #include "../essentiautil.h"
 
@@ -208,6 +209,22 @@ class Network {
   NetworkNode* _visibleNetworkRoot;
   NetworkNode* _executionNetworkRoot;
   std::vector<streaming::Algorithm*> _toposortedNetwork;
+#if COMCAST_CPU_THROTTLER
+  enum ThrottleState {
+    ThrottleStateInit,
+    ThrottleStateTest,
+    ThrottleStateRun,
+    ThrottleStateNone
+  };
+  ThrottleState _throttleState;
+  int _sleepTime;
+  int _numThrottleFrames;
+  int _idxThrottleFrame;
+  int _numFramesPerSleep;
+  int _totalTimeAllowed;
+  struct timeval _tvStart;
+
+#endif
 
   /**
    * Build the network of visibly connected algorithms (ie: do not enter composite

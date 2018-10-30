@@ -22,6 +22,11 @@
 #include "graphutils.h"
 #include "../streaming/streamingalgorithm.h"
 #include "../streaming/streamingalgorithmcomposite.h"
+
+#if COMCAST_CPU_THROTTLER
+#include "../streaming/algorithms/vectorinput.h"
+#endif
+
 using namespace std;
 using namespace essentia;
 using namespace essentia::streaming;
@@ -259,6 +264,33 @@ void Network::runPrepare() {
   for (int i=0; i<(int)_toposortedNetwork.size(); i++) _toposortedNetwork[i]->nProcess = 0;
 #endif
   saveDebugLevels();
+
+#if COMCAST_CPU_THROTTLER
+  _throttleState = ThrottleStateNone;
+  if (!_toposortedNetwork.empty())
+  {
+    streaming::Algorithm* gen = _toposortedNetwork[0];
+    if (gen->name() == "VectorInput")
+    {
+      _numThrottleFrames = ((VectorInput<Real>*)gen)->getSize();
+      if (_numThrottleFrames > 10000)//only throttle for large frame count
+      {
+        _throttleState = ThrottleStateInit;
+        _sleepTime = 0;
+        _idxThrottleFrame = 0;
+        _numFramesPerSleep = 1000;
+        //to much work to make this configurable
+        //xaudio is using 16000 sample rate
+        //and xaudio uses double buffer and flips buffers between alsa reader and essentia
+        //this means we have as much time as it takes for the reader to read the frames
+        //we calculate that time based on current frame count and sample rate
+        //and to avoid using too much time, we take 90% of it
+        //then covert to miliseconds
+        _totalTimeAllowed = ((_numThrottleFrames / 16000.0f) * 0.9) * 1000;
+      }
+    }
+  }
+#endif
 }
 
 // returns False when there are no more steps to run
@@ -279,6 +311,38 @@ bool Network::runStep() {
 
   E_DEBUG(EScheduler, dash << " Buffer states before running generator, nProcess = " << gen->nProcess << " " << dash);
   printNetworkBufferFillState();
+#endif
+
+#if COMCAST_CPU_THROTTLER
+  if (_throttleState != ThrottleStateNone && (_idxThrottleFrame++ % _numFramesPerSleep) == 0) {
+    if (_throttleState == ThrottleStateInit) {
+      printf("Throttler Init\n");
+      struct timezone tz;
+      gettimeofday(&_tvStart, &tz);
+      _throttleState = ThrottleStateTest;
+    }
+    else if (_throttleState == ThrottleStateTest) {
+      struct timezone tz;
+      struct timeval tv;
+      gettimeofday(&tv, &tz);
+      int elapsedTime = ((tv.tv_sec - _tvStart.tv_sec)*1000000 + (tv.tv_usec - _tvStart.tv_usec))/1000;
+      int totalSleeps = _numThrottleFrames/_numFramesPerSleep;
+      int actualTotalTimeNeeded = elapsedTime * totalSleeps;
+      int timeAvailableToSleep = _totalTimeAllowed - actualTotalTimeNeeded;
+      if (timeAvailableToSleep > 1000) {
+        _sleepTime = timeAvailableToSleep / totalSleeps;
+        _throttleState = ThrottleStateRun;
+      }
+      else { //don't waste the effort if we have less then 1 second to play around with
+        _throttleState = ThrottleStateNone;
+      }
+      printf("Throttler Test numFrames=%d elapsedTime=%d totalSleeps=%d actualTotalTimeNeeded=%d timeAvailableToSleep=%d sleepTime=%d\n", 
+        _numThrottleFrames, elapsedTime, totalSleeps,actualTotalTimeNeeded, timeAvailableToSleep, _sleepTime);
+    }
+    if (_sleepTime > 0) {
+      usleep(_sleepTime * 1000);
+    }
+  }
 #endif
 
   // first run the generator once
